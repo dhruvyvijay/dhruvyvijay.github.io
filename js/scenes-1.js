@@ -17,6 +17,13 @@
     const r1 = R(770, 44, 520, 21), r2 = R(812, 52, 430, 22), r3 = R(862, 58, 600, 23), r4 = R(915, 54, 520, 24), r5 = R(968, 40, 640, 25);
     const crest = A.ridgePts({ x0: -500, x1: 2500, y: (x) => 1012 - Math.pow(Math.abs(x - 1000) / 1000, 2) * 34, amp: 6, wave: 400, seed: 9, step: 50 });
     const S = (pts) => A.shape(pts, 2100, true);
+    // the open top edge of a smoothed ridge (same curve A.shape draws), lifted by `lift` units: the credentials ride on it
+    const skyline = (pts, lift) => {
+      let d = `M ${f(pts[0][0])} ${f(pts[0][1] - lift)}`;
+      for (let i = 1; i < pts.length - 1; i++) d += ` Q ${f(pts[i][0])} ${f(pts[i][1] - lift)} ${f((pts[i][0] + pts[i + 1][0]) / 2)} ${f((pts[i][1] + pts[i + 1][1]) / 2 - lift)}`;
+      const l = pts[pts.length - 1];
+      return d + ` L ${f(l[0])} ${f(l[1] - lift)}`;
+    };
     const blobs = (pts, seed, n, color) => {
       const r = A.rng(seed), yf = A.at(pts); let s = '';
       for (let i = 0; i < n; i++) { const x = -400 + r() * 2800, rr = 12 + r() * 24; s += `<ellipse cx="${f(x)}" cy="${f(yf(x) + rr * 0.15)}" rx="${f(rr * 1.3)}" ry="${f(rr)}"/>`; }
@@ -43,6 +50,11 @@
         { depth: 0, key: 'day', svg: fill('hero-day') },
         { depth: 0.03, key: 'sun', svg: `<circle cx="1210" cy="800" r="440" fill="url(#hero-glow)"/><circle cx="1210" cy="800" r="62" fill="#fff4cf"/>` },
         { depth: 0.14, svg: `<path d="${S(r1)}" fill="#ab8ca9"/><path d="${S(r2)}" fill="#8b789f"/>` },
+        {
+          // the credentials, set along the far skyline; same depth as the ridge so they move with it
+          depth: 0.14, key: 'creds', svg: `<path id="hero-skyline" fill="none"/>
+            <text font-family="DM Mono, monospace" font-weight="500" letter-spacing="0.08em" fill="#3a2347"><textPath href="#hero-skyline">PRODUCT ANALYST<tspan dx="0.75em" fill="#c4512f">/</tspan><tspan dx="0.75em">NATIONAL SPEAKER</tspan><tspan dx="0.75em" fill="#c4512f">/</tspan><tspan dx="0.75em">AI POLICY WORK FEATURED IN THE WASHINGTON POST</tspan></textPath></text>`
+        },
         { depth: 0.34, svg: `<path d="${S(r3)}" fill="#66698e"/>${blobs(r3, 61, 40, '#5b5f85')}<path d="${S(r4)}" fill="#465a7c"/>${blobs(r4, 62, 55, '#3c4f70')}` },
         { depth: 0.6, svg: `<path d="${S(r5)}" fill="#2c4a62"/>${blobs(r5, 63, 70, '#223d54')}` },
         {
@@ -56,8 +68,32 @@
         }
       ],
       init(S) { S.copy = S.el.querySelector('.hero-copy'); S.cue = S.el.querySelector('.cue'); },
+      layout(S) {
+        // size the skyline text in real pixels and start it under the left edge of the intro.
+        // Where the whole line can't fit between there and the route dots (phones, narrow windows),
+        // the plain list in the page is shown instead.
+        const L = S.L.creds, vw = S.stage.clientWidth;
+        const u = L.unit, path = L.svg.querySelector('#hero-skyline'), tp = L.svg.querySelector('textPath'), text = L.svg.querySelector('text');
+        let fits = vw > 640;
+        if (fits) {
+          text.setAttribute('font-size', f(Math.min(13, Math.max(12, vw * 0.0092)) / u));
+          path.setAttribute('d', skyline(r1, 11 / u));
+          try {
+            const x = L.vb.x + S.copy.offsetLeft / u;
+            let lo = 0, hi = path.getTotalLength();
+            for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (path.getPointAtLength(m).x < x) lo = m; else hi = m; }
+            tp.setAttribute('startOffset', f(lo));
+            const bb = text.getBBox();                  // the rendered line, slashes and spacing included
+            fits = bb.width > 0 && (bb.x + bb.width - L.vb.x) * u <= vw - 76;
+          } catch (err) { fits = false; }
+        }
+        S.credsOff = !fits;
+        S.el.classList.toggle('creds-curved', fits);
+      },
       update(c) {
         const d = c.d, e = 1 - Math.pow(1 - d, 2);
+        c.L.creds.hidden = !!c.S.credsOff;
+        c.L.creds.o = Math.max(0, 1 - d * 1.7);   // fades with the name and intro
         c.L.sun.y -= e * 215 * c.unit;
         c.L.day.o = Math.min(1, d * 1.3) * 0.8;
         c.layers.forEach((l) => { if (l.depth > 0.05) l.y += d * l.depth * c.vh * 0.08; });
